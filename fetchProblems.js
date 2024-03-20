@@ -1,22 +1,16 @@
-const dotenv = require('dotenv');
 const axios = require('axios');
 const cheerio = require('cheerio');
-const GetHandle = require('./connect with notion APIs/get-handle');
+const { getHandle } = require('./connect with notion APIs/get-handle');
+const { getLinks } = require('./connect with notion APIs/database');
 
-const { fetchChallengeLinks } = require('./connect with notion APIs/database');
-dotenv.config({ path: '.env' });
-
-exports.fetchProblems = async () => {
+const getAllProblem = async (NotionKey, LinksDatabase, BlockId) => {
   try {
-    const challenges = await fetchChallengeLinks(
-      process.env.NOTION_CHALLENGES_LINKS_DATABASE_ID
-    );
-
+    const links = await getLinks(NotionKey, LinksDatabase);
     const allProblems = [];
 
-    const fetchPromises = challenges.map(async (challenge) => {
+    const fetchAllProblems = links.map(async (link) => {
       try {
-        const response = await axios.get(challenge.url);
+        const response = await axios.get(link.url);
 
         if (response.status === 200) {
           const html = response.data;
@@ -25,44 +19,87 @@ exports.fetchProblems = async () => {
 
           for (let index = 0; index < optionElements.length; index++) {
             const element = optionElements[index];
-            const problemName = $(element).attr('data-problem-name'); // Changed to problemName
+            const problemName = $(element).attr('data-problem-name');
             const value = $(element).attr('value');
-            const verdict = 'UNSOLVED';
 
-            // const verdict = await getUser(`${challenge.url}/status/${value}`);
-
-            if (problemName) {
-              // Changed to problemName
-              const link = `${challenge.url}/problem/${value}`;
+            if (problemName && value) {
+              const verdict = await checkVerdict(
+                NotionKey,
+                BlockId,
+                `${link.url}/status/${value}`
+              );
+              const url = `${link.url}/problem/${value}`;
 
               allProblems.push({
                 value: value,
                 Problem_name: problemName,
-                University: challenge.university,
-                Link: link,
+                University: link.university,
+                Link: url,
                 Status: verdict,
               });
-
-              //console.log(problemName, link, challenge.name, verdict);
             }
           }
-        } else {
-          console.log(
-            `Failed to fetch web page for ${challenge.university}. Status code: ${response.status}`
-          );
         }
       } catch (error) {
         console.error(
-          `Error fetching problems for ${challenge.university}:`,
+          `Error fetching problems for ${link.university}:`,
           error.message
         );
       }
     });
 
-    await Promise.all(fetchPromises);
-    // console.log(allProblems);
+    await Promise.all(fetchAllProblems);
     return allProblems;
   } catch (error) {
     console.log('Error:', error.message);
   }
 };
+
+const checkVerdict = async (NotionKey, BlockId, url) => {
+  const handle = await getHandle(NotionKey, BlockId);
+
+  let result = 'UNSOLVED';
+  try {
+    let pageIndex = 1;
+    let maxPageIndex = 1;
+
+    while (maxPageIndex >= pageIndex) {
+      const pageUrl = `${url}/page/${pageIndex}?order=BY_PROGRAM_LENGTH_ASC`;
+      const responses = await Promise.all([axios.get(pageUrl)]);
+
+      for (const res of responses) {
+        if (res.status !== 200) {
+          console.log(`Failed to fetch web page at ${pageUrl}`);
+
+          return result;
+        }
+
+        const $ = cheerio.load(res.data);
+        const spanTags = $('span.page-index');
+        const pageIndexes = spanTags
+          .map((_, element) => parseInt($(element).text()))
+          .get();
+        maxPageIndex = Math.max(maxPageIndex, ...pageIndexes);
+
+        const statusRows = $('tr[data-submission-id]');
+
+        for (let i = 0; i < statusRows.length; i++) {
+          const userHandle = $(statusRows[i]).find('.rated-user').text().trim();
+          if (userHandle === handle) {
+            result = 'SOLVED ✅️';
+            return result;
+          }
+        }
+      }
+
+      pageIndex++;
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Error fetching or parsing web page:', error);
+    return result;
+  }
+};
+
+module.exports = { checkVerdict, getAllProblem };

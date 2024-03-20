@@ -1,10 +1,7 @@
-const dotenv = require('dotenv');
 const { Client } = require('@notionhq/client');
 
-dotenv.config({ path: '../.env' });
-
-exports.getHandle = async (blockId) => {
-  const notion = new Client({ auth: process.env.NOTION_KEY });
+exports.getHandle = async (notionKey, blockId) => {
+  const notion = new Client({ auth: notionKey});
 
   const res = await notion.blocks.retrieve({
     block_id: blockId,

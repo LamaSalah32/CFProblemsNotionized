@@ -1,9 +1,11 @@
-// Import required modules
 const dotenv = require('dotenv');
-const problem = require('./problemHandler');
+const { problem } = require('./problemsHandler');
 
-// Load environment variables from .env file
 dotenv.config({ path: '.env' });
 
-// Call the main function
-problem();
+problem(
+  process.env.NOTION_KEY,
+  process.env.NOTION_PROBLEMS_DATABASE_ID,
+  process.env.NOTION_CHALLENGES_LINKS_DATABASE_ID,
+  process.env.NOTION_HANDLE_BLOCK_ID
+);
